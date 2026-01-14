@@ -146,57 +146,95 @@ async function handleIncomingMessage(mesId) {
     const matches = [...message.mes.matchAll(regex)];
 
     if (matches.length > 0) {
-        toastr.info('Generating images via SAAC...');
-        for (const match of matches) {
-            try {
-                // 现在 match[1] 是内容，match[0] 是完整标签
-                const content = match[1];
+        const insertType = extension_settings[extensionName].insertType;
+        let contentModified = false;
+        const pendingGenerations = [];
 
-                const base64Image = await generateImage({
-                    character: extension_settings[extensionName].defaultCharacter,
-                    ai_prompt: content, // 统一发送到 ai_prompt 由 SAAC 决定是否扩展
-                    custom_prompt: ''
-                });
+        // 1. 立即处理消息文本：隐藏标签或替换为占位符
+        for (let i = 0; i < matches.length; i++) {
+            const match = matches[i];
+            const fullTag = match[0];
+            const content = match[1];
 
-                if (base64Image) {
-                    const insertType = extension_settings[extensionName].insertType;
-                    const fullBase64 = base64Image.startsWith('data:') ? base64Image : `data:image/png;base64,${base64Image}`;
+            if (insertType === INSERT_TYPE.INLINE || insertType === INSERT_TYPE.NEW_MESSAGE) {
+                // INLINE/NEW 模式：直接移除标签，避免视觉干扰
+                message.mes = message.mes.replace(fullTag, '');
+                contentModified = true;
+                pendingGenerations.push({ prompt: content });
+            } else if (insertType === INSERT_TYPE.REPLACE) {
+                // REPLACE 模式：使用临时占位符
+                const placeholderId = `saac-gen-${mesId}-${i}`;
+                // 使用 font-awesome 图标作为加载动画
+                const placeholder = `<span id="${placeholderId}" class="saac-loading-placeholder" title="Generating image..."><i class="fa-solid fa-circle-notch fa-spin"></i></span>`;
+                message.mes = message.mes.replace(fullTag, placeholder);
+                contentModified = true;
+                pendingGenerations.push({ prompt: content, placeholder: placeholder });
+            }
+        }
 
-                    if (insertType === INSERT_TYPE.INLINE || insertType === INSERT_TYPE.REPLACE || insertType === INSERT_TYPE.NEW_MESSAGE) {
+        // 如果修改了文本，立即更新 UI
+        if (contentModified) {
+            updateMessageBlock(mesId, message);
+            await eventSource.emit(event_types.MESSAGE_UPDATED, mesId);
+            await context.saveChat();
+        }
+
+        // 2. 异步执行生成
+        setTimeout(async () => {
+            toastr.info(`Generating ${matches.length} images via SAAC...`);
+
+            for (const item of pendingGenerations) {
+                try {
+                    const base64Image = await generateImage({
+                        character: extension_settings[extensionName].defaultCharacter,
+                        ai_prompt: item.prompt,
+                        custom_prompt: ''
+                    });
+
+                    if (base64Image) {
+                        const fullBase64 = base64Image.startsWith('data:') ? base64Image : `data:image/png;base64,${base64Image}`;
+
                         if (insertType === INSERT_TYPE.INLINE || insertType === INSERT_TYPE.REPLACE) {
                             if (!message.extra) message.extra = {};
                             if (!message.extra.image_swipes) message.extra.image_swipes = [];
 
+                            // 添加到 swipes
                             message.extra.image_swipes.push(fullBase64);
-                            message.extra.image = fullBase64;
-                            // 标题使用标签内的原始描述，更具可读性
-                            message.extra.title = content.substring(0, 50);
 
-                            if (insertType === INSERT_TYPE.REPLACE) {
-                                const imgHtml = `<img src="${fullBase64}" style="max-width:100%;" />`;
-                                message.mes = message.mes.replace(match[0], imgHtml);
-                                updateMessageBlock(mesId, message);
-                            } else {
+                            if (insertType === INSERT_TYPE.INLINE) {
+                                // INLINE: 设置为主图并刷新多媒体区域
+                                message.extra.image = fullBase64;
+                                message.extra.title = item.prompt.substring(0, 50);
                                 const messageElement = $(`.mes[mesid="${mesId}"]`);
                                 appendMediaToMessage(message, messageElement);
+                            } else if (insertType === INSERT_TYPE.REPLACE) {
+                                // REPLACE: 将占位符替换为真正的图片 img 标签
+                                const imgHtml = `<img src="${fullBase64}" class="saac-generated-image" alt="${item.prompt}" style="max-width:100%;" />`;
+                                message.mes = message.mes.replace(item.placeholder, imgHtml);
+                                updateMessageBlock(mesId, message);
                             }
                         } else if (insertType === INSERT_TYPE.NEW_MESSAGE) {
-                            // Logic for new message can be added if needed, but for now we follow reference
                             const imgHtml = `<img src="${fullBase64}" style="max-width:100%;" />`;
                             await context.addMessage({
                                 role: 'assistant',
                                 mes: imgHtml,
-                                extra: { image: fullBase64, title: customPrompt || aiPrompt }
+                                extra: { image: fullBase64, title: item.prompt.substring(0, 50) }
                             });
                         }
+                        await context.saveChat();
                     }
-                    await context.saveChat();
+                } catch (e) {
+                    console.error('[SAAC] Image generation error:', e);
+                    toastr.error('SAAC Image Error: ' + e.message);
+                    // 如果是替换模式失败，将占位符替换为错误图标
+                    if (insertType === INSERT_TYPE.REPLACE && item.placeholder) {
+                        message.mes = message.mes.replace(item.placeholder, `<span title="Generation Failed" style="color:red;"><i class="fa-solid fa-triangle-exclamation"></i></span>`);
+                        updateMessageBlock(mesId, message);
+                    }
                 }
-            } catch (e) {
-                console.error('[SAAC] Image generation error:', e);
-                toastr.error('SAAC Image Error: ' + e.message);
             }
-        }
+            toastr.success(`Generated images successfully.`);
+        }, 0);
     }
 }
 
