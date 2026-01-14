@@ -169,32 +169,41 @@ async function handleIncomingMessage(mesId) {
                     });
 
                     if (base64Image) {
-                        const fullBase64 = base64Image.startsWith('data:') ? base64Image : `data:image/png;base64,${base64Image}`;
+                        // 智能判断返回的是 URL 还是 Base64
+                        const isUrl = base64Image.startsWith('http');
+                        const imgData = isUrl ? base64Image : (base64Image.startsWith('data:') ? base64Image : `data:image/png;base64,${base64Image}`);
+                        const displayTitle = item.prompt ? item.prompt.substring(0, 100) : 'Generated Image';
 
-                        if (insertType === INSERT_TYPE.INLINE || insertType === INSERT_TYPE.REPLACE) {
+                        if (insertType === INSERT_TYPE.INLINE) {
                             if (!message.extra) message.extra = {};
                             if (!message.extra.image_swipes) message.extra.image_swipes = [];
-
-                            // 添加到 swipes
-                            message.extra.image_swipes.push(fullBase64);
-
-                            // 设置为主图并刷新多媒体区域 (INLINE 和 REPLACE 现在共用此逻辑)
-                            message.extra.image = fullBase64;
-                            message.extra.title = item.prompt.substring(0, 50);
+                            message.extra.image_swipes.push(imgData);
+                            message.extra.image = imgData;
+                            message.extra.title = displayTitle;
+                            const messageElement = $(`.mes[mesid="${mesId}"]`);
+                            appendMediaToMessage(message, messageElement);
+                        } else if (insertType === INSERT_TYPE.REPLACE) {
+                            if (!message.extra) message.extra = {};
+                            message.extra.image_swipes = [imgData];
+                            message.extra.image = imgData;
+                            message.extra.title = displayTitle;
                             const messageElement = $(`.mes[mesid="${mesId}"]`);
                             appendMediaToMessage(message, messageElement);
                         } else if (insertType === INSERT_TYPE.NEW_MESSAGE) {
-                            const imgHtml = `<img src="${fullBase64}" style="max-width:100%;" />`;
-                            // Manual insertion since context.addMessage is not available in this context wrapper
+                            // 使用原生媒体展示，mes 仅保留简单的提示语，避免数据库膨胀
                             context.chat.push({
                                 name: message.name,
                                 is_user: false,
                                 is_system: false,
                                 send_date: Date.now(),
-                                mes: imgHtml,
-                                extra: { image: fullBase64, title: item.prompt.substring(0, 50) }
+                                mes: `*(Image Generated: ${displayTitle}...)*`,
+                                extra: {
+                                    image: imgData,
+                                    image_swipes: [imgData],
+                                    title: displayTitle
+                                }
                             });
-                            // Emit event to notify UI of new message
+                            // 触发消息接收事件，由于这是新消息，需要通知 UI 渲染
                             await eventSource.emit(event_types.MESSAGE_RECEIVED, context.chat.length - 1);
                         }
                         await context.saveChat();
