@@ -1,0 +1,15 @@
+{
+    "display_name": "SAAC Image Generation",
+    "loading_order": 1,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "",
+    "author": "SAAC",
+    "version": "1.0.0",
+    "homePage": "https://github.com/mirabarukaso/character_select_stand_alone_app",
+    "auto_update": false,
+    "i18n": {
+        "zh-cn": "i18n/zh-cn.json"
+    }
+}

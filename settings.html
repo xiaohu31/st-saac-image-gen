@@ -1,0 +1,80 @@
+<div class="inline-drawer">
+    <div class="inline-drawer-toggle inline-drawer-header">
+        <b data-i18n="SAAC Image Generation">SAAC Image Generation</b>
+        <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+    </div>
+    <div class="inline-drawer-content">
+        <!-- SAAC 服务器地址 -->
+        <div class="flex-container flexnowrap">
+            <label for="saac_server_url" class="flex1" data-i18n="SAAC Server URL">SAAC Server URL</label>
+            <input id="saac_server_url" class="text_pole widthFull" type="text" placeholder="http://localhost:3000">
+        </div>
+
+        <!-- 默认角色名 -->
+        <div class="flex-container flexnowrap">
+            <label for="saac_default_character" class="flex1" data-i18n="Default Character">Default Character</label>
+            <input id="saac_default_character" class="text_pole widthFull" type="text" placeholder="character_name">
+        </div>
+
+        <!-- 图片插入模式 -->
+        <div class="flex-container flexnowrap">
+            <label for="saac_insert_type" class="flex1" data-i18n="Image Insert Type">Image Insert Type</label>
+            <select id="saac_insert_type" class="text_pole widthNatural margin0">
+                <option data-i18n="Insert In Current Message" value="inline">Insert In Current Message</option>
+                <option data-i18n="Inline Replace Mode" value="replace">Inline Replace Mode</option>
+                <option data-i18n="Create New Message" value="new">Create New Message</option>
+                <option data-i18n="Disable" value="disabled">Disable</option>
+            </select>
+        </div>
+
+        <!-- 启用提示词注入 -->
+        <div class="flex-container flexnowrap">
+            <label class="checkbox_label" for="saac_prompt_injection_enabled">
+                <span data-i18n="Enable Prompt Injection">Enable Prompt Injection</span>
+                <input type="checkbox" id="saac_prompt_injection_enabled" class="checkbox">
+            </label>
+        </div>
+
+        <!-- 提示词模板 -->
+        <div class="">
+            <div><label for="saac_prompt_template" class="flex1" data-i18n="Prompt Template">Prompt Template</label></div>
+            <textarea id="saac_prompt_template" class="text_pole textarea_compact" rows="4" placeholder="Prompt that instructs AI to generate image tag"></textarea>
+        </div>
+
+        <!-- 正则表达式 -->
+        <div class="">
+            <div><label for="saac_prompt_regex" class="flex1" data-i18n="Regex">Regex</label></div>
+            <textarea id="saac_prompt_regex" class="text_pole textarea_compact" rows="2" placeholder="Regex to extract prompt from AI response"></textarea>
+        </div>
+
+        <!-- 默认负面提示词 -->
+        <div class="">
+            <div><label for="saac_negative_prompt" class="flex1" data-i18n="Default Negative Prompt">Default Negative Prompt</label></div>
+            <textarea id="saac_negative_prompt" class="text_pole textarea_compact" rows="2" placeholder="nsfw, low quality, bad anatomy"></textarea>
+        </div>
+
+        <!-- 注入位置 -->
+        <div class="flex-container flexnowrap">
+            <label for="saac_injection_position" class="flex1" data-i18n="Injection Position">Injection Position</label>
+            <select id="saac_injection_position" class="text_pole widthNatural margin0">
+                <option value="deep_system" data-i18n="at Depth System">@D ⚙️</option>
+                <option value="deep_user" data-i18n="at Depth User">@D 👤</option>
+                <option value="deep_assistant" data-i18n="at Depth AI">@D 🤖</option>
+            </select>
+        </div>
+
+        <!-- 注入深度 -->
+        <div class="flex-container flexnowrap">
+            <label for="saac_injection_depth" class="flex1" data-i18n="Injection Depth">Injection Depth</label>
+            <input id="saac_injection_depth" class="text_pole widthUnset" type="number" min="0" max="100" value="0">
+        </div>
+
+        <!-- 测试连接按钮 -->
+        <div class="flex-container flexnowrap">
+            <div id="saac_test_connection" class="menu_button menu_button_icon">
+                <i class="fa-solid fa-plug"></i>
+                <span data-i18n="Test Connection">Test Connection</span>
+            </div>
+        </div>
+    </div>
+</div>

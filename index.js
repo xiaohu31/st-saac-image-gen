@@ -1,0 +1,223 @@
+import { extension_settings, getContext, loadExtensionSettings } from '../../../extensions.js';
+import {
+    saveSettingsDebounced,
+    eventSource,
+    event_types,
+    updateMessageBlock,
+    appendMediaToMessage,
+} from '../../../../script.js';
+import { regexFromString } from '../../../utils.js';
+
+const extensionName = 'st-saac-image-gen';
+const extensionFolderPath = `/scripts/extensions/third-party/${extensionName}`;
+
+const INSERT_TYPE = {
+    DISABLED: 'disabled',
+    INLINE: 'inline',
+    NEW_MESSAGE: 'new',
+    REPLACE: 'replace',
+};
+
+const defaultSettings = {
+    serverUrl: 'http://localhost:3000',
+    defaultCharacter: '',
+    insertType: INSERT_TYPE.INLINE,
+    negativePrompt: '',
+    promptInjection: {
+        enabled: true,
+        prompt: `<image_generation>\nBased on the current scene and character, output a <pic character="name" ai_prompt="description" custom_prompt="details"> tag at the end of your reply to generate an image. ai_prompt should be a physical description for the AI to expand, and custom_prompt should be the specific scene details.\n</image_generation>`,
+        regex: '/<pic[^>]*character="([^"]*)"[^>]*ai_prompt="([^"]*)"[^>]*custom_prompt="([^"]*)"[^>]*?>/g',
+        position: 'deep_system',
+        depth: 0,
+    },
+};
+
+function updateUI() {
+    $('#saac_server_url').val(extension_settings[extensionName].serverUrl);
+    $('#saac_default_character').val(extension_settings[extensionName].defaultCharacter);
+    $('#saac_insert_type').val(extension_settings[extensionName].insertType);
+    $('#saac_negative_prompt').val(extension_settings[extensionName].negativePrompt);
+    $('#saac_prompt_injection_enabled').prop('checked', extension_settings[extensionName].promptInjection.enabled);
+    $('#saac_prompt_template').val(extension_settings[extensionName].promptInjection.prompt);
+    $('#saac_prompt_regex').val(extension_settings[extensionName].promptInjection.regex);
+    $('#saac_injection_position').val(extension_settings[extensionName].promptInjection.position);
+    $('#saac_injection_depth').val(extension_settings[extensionName].promptInjection.depth);
+}
+
+async function loadSettings() {
+    extension_settings[extensionName] = extension_settings[extensionName] || {};
+    if (Object.keys(extension_settings[extensionName]).length === 0) {
+        Object.assign(extension_settings[extensionName], JSON.parse(JSON.stringify(defaultSettings)));
+    }
+    updateUI();
+}
+
+async function testConnection() {
+    const url = extension_settings[extensionName].serverUrl;
+    try {
+        const response = await fetch(`${url}/api/ws-config`);
+        if (response.ok) {
+            toastr.success('Connection successful');
+        } else {
+            toastr.error('Connection failed');
+        }
+    } catch (e) {
+        toastr.error('Connection failed: ' + e.message);
+    }
+}
+
+async function generateImage(params) {
+    const url = extension_settings[extensionName].serverUrl;
+    try {
+        const response = await fetch(`${url}/api/st/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                character: params.character || extension_settings[extensionName].defaultCharacter,
+                ai_prompt: params.ai_prompt || '',
+                custom_prompt: params.custom_prompt || '',
+                negative_prompt: extension_settings[extensionName].negativePrompt || undefined
+            }),
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Server error');
+        }
+
+        const data = await response.json();
+        return data.image; // Base64
+    } catch (e) {
+        console.error('[SAAC] Generation error:', e);
+        throw e;
+    }
+}
+
+async function handleIncomingMessage(mesId) {
+    if (extension_settings[extensionName].insertType === INSERT_TYPE.DISABLED) return;
+
+    const context = getContext();
+    const message = context.chat[mesId];
+    if (!message || message.is_user) return;
+
+    const regexStr = extension_settings[extensionName].promptInjection.regex;
+    const regex = regexFromString(regexStr);
+    const matches = [...message.mes.matchAll(regex)];
+
+    if (matches.length > 0) {
+        toastr.info('Generating images via SAAC...');
+        for (const match of matches) {
+            try {
+                const charName = match[1];
+                const aiPrompt = match[2];
+                const customPrompt = match[3];
+
+                const base64Image = await generateImage({
+                    character: charName,
+                    ai_prompt: aiPrompt,
+                    custom_prompt: customPrompt
+                });
+
+                if (base64Image) {
+                    const insertType = extension_settings[extensionName].insertType;
+                    const fullBase64 = base64Image.startsWith('data:') ? base64Image : `data:image/png;base64,${base64Image}`;
+
+                    if (insertType === INSERT_TYPE.INLINE || insertType === INSERT_TYPE.REPLACE || insertType === INSERT_TYPE.NEW_MESSAGE) {
+                        if (insertType === INSERT_TYPE.INLINE || insertType === INSERT_TYPE.REPLACE) {
+                            if (!message.extra) message.extra = {};
+                            if (!message.extra.image_swipes) message.extra.image_swipes = [];
+
+                            message.extra.image_swipes.push(fullBase64);
+                            message.extra.image = fullBase64;
+                            message.extra.title = customPrompt || aiPrompt;
+
+                            if (insertType === INSERT_TYPE.REPLACE) {
+                                const imgHtml = `<img src="${fullBase64}" style="max-width:100%;" />`;
+                                message.mes = message.mes.replace(match[0], imgHtml);
+                                updateMessageBlock(mesId, message);
+                            } else {
+                                const messageElement = $(`.mes[mesid="${mesId}"]`);
+                                appendMediaToMessage(message, messageElement);
+                            }
+                        } else if (insertType === INSERT_TYPE.NEW_MESSAGE) {
+                            // Logic for new message can be added if needed, but for now we follow reference
+                            const imgHtml = `<img src="${fullBase64}" style="max-width:100%;" />`;
+                            await context.addMessage({
+                                role: 'assistant',
+                                mes: imgHtml,
+                                extra: { image: fullBase64, title: customPrompt || aiPrompt }
+                            });
+                        }
+                    }
+                    await context.saveChat();
+                }
+            } catch (e) {
+                console.error('[SAAC] Image generation error:', e);
+                toastr.error('SAAC Image Error: ' + e.message);
+            }
+        }
+    }
+}
+
+// 按钮点击事件：打开设置面板
+function onExtensionButtonClick() {
+    const extensionsDrawer = $('#extensions-settings-button .drawer-toggle');
+    if ($('#rm_extensions_block').hasClass('closedDrawer')) {
+        extensionsDrawer.trigger('click');
+    }
+    setTimeout(() => {
+        const container = $('#image_auto_generation_container');
+        if (container.length) {
+            $('#rm_extensions_block').animate({
+                scrollTop: container.offset().top - $('#rm_extensions_block').offset().top + $('#rm_extensions_block').scrollTop(),
+            }, 500);
+            const drawerContent = container.find('.inline-drawer-content');
+            if (drawerContent.is(':hidden')) {
+                container.find('.inline-drawer-header').trigger('click');
+            }
+        }
+    }, 500);
+}
+
+$(async function () {
+    const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
+    $('#extensionsMenu').append(`<div id="saac_gen_menu" class="list-group-item flex-container flexGap5">
+        <div class="fa-solid fa-paintbrush"></div>
+        <span data-i18n="SAAC Image Generation">SAAC Image Generation</span>
+    </div>`);
+
+    $('#saac_gen_menu').on('click', onExtensionButtonClick);
+
+    if (!$('#image_auto_generation_container').length) {
+        $('#extensions_settings2').append('<div id="image_auto_generation_container" class="extension_container"></div>');
+    }
+    $('#image_auto_generation_container').append(settingsHtml);
+
+    // Event Listeners for UI
+    $('#saac_server_url').on('input', () => { extension_settings[extensionName].serverUrl = $('#saac_server_url').val(); saveSettingsDebounced(); });
+    $('#saac_default_character').on('input', () => { extension_settings[extensionName].defaultCharacter = $('#saac_default_character').val(); saveSettingsDebounced(); });
+    $('#saac_insert_type').on('change', () => { extension_settings[extensionName].insertType = $('#saac_insert_type').val(); saveSettingsDebounced(); });
+    $('#saac_negative_prompt').on('input', () => { extension_settings[extensionName].negativePrompt = $('#saac_negative_prompt').val(); saveSettingsDebounced(); });
+    $('#saac_prompt_injection_enabled').on('change', () => { extension_settings[extensionName].promptInjection.enabled = $('#saac_prompt_injection_enabled').prop('checked'); saveSettingsDebounced(); });
+    $('#saac_test_connection').on('click', testConnection);
+
+    await loadSettings();
+
+    eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, (eventData) => {
+        if (!extension_settings[extensionName].promptInjection.enabled || extension_settings[extensionName].insertType === INSERT_TYPE.DISABLED) return;
+
+        const { prompt, position, depth } = extension_settings[extensionName].promptInjection;
+        const role = position === 'deep_assistant' ? 'assistant' : (position === 'deep_user' ? 'user' : 'system');
+
+        if (depth === 0) {
+            eventData.chat.push({ role, content: prompt });
+        } else {
+            eventData.chat.splice(-depth, 0, { role, content: prompt });
+        }
+    });
+
+    eventSource.on(event_types.MESSAGE_RECEIVED, async (data) => {
+        const context = getContext();
+        await handleIncomingMessage(context.chat.length - 1);
+    });
+});
