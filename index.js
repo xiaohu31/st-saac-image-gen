@@ -148,12 +148,15 @@ async function handleIncomingMessage(mesId) {
     if (matches.length > 0) {
         const insertType = extension_settings[extensionName].insertType;
         const pendingGenerations = [];
+        const currentMesId = mesId; // Use a distinct variable for the message being processed
 
-        // 1. 收集待生成的图片信息（由于使用属性方式，标签天然不可见，不再修改原文）
+        // 1. 收集待生成的图片信息（保存原始标签以便替换）
         for (let i = 0; i < matches.length; i++) {
             const match = matches[i];
-            const content = match[1]; // This now captures the content of the 'prompt' attribute
-            pendingGenerations.push({ prompt: content });
+            pendingGenerations.push({
+                prompt: match[1],
+                originalTag: match[0]
+            });
         }
 
         // 2. 异步执行生成
@@ -169,42 +172,51 @@ async function handleIncomingMessage(mesId) {
                     });
 
                     if (base64Image) {
-                        // 智能判断返回的是 URL 还是 Base64
                         const isUrl = base64Image.startsWith('http');
                         const imgData = isUrl ? base64Image : (base64Image.startsWith('data:') ? base64Image : `data:image/png;base64,${base64Image}`);
                         const displayTitle = item.prompt ? item.prompt.substring(0, 100) : 'Generated Image';
 
                         if (insertType === INSERT_TYPE.INLINE) {
+                            // 参考项目 INLINE 逻辑：更新 extra 并挂载媒体，不修改 mes
                             if (!message.extra) message.extra = {};
                             if (!message.extra.image_swipes) message.extra.image_swipes = [];
                             message.extra.image_swipes.push(imgData);
                             message.extra.image = imgData;
+                            message.extra.inline_image = true;
                             message.extra.title = displayTitle;
-                            const messageElement = $(`.mes[mesid="${mesId}"]`);
+
+                            const messageElement = $(`.mes[mesid="${currentMesId}"]`);
                             appendMediaToMessage(message, messageElement);
                         } else if (insertType === INSERT_TYPE.REPLACE) {
-                            if (!message.extra) message.extra = {};
-                            message.extra.image_swipes = [imgData];
-                            message.extra.image = imgData;
-                            message.extra.title = displayTitle;
-                            const messageElement = $(`.mes[mesid="${mesId}"]`);
-                            appendMediaToMessage(message, messageElement);
+                            // 参考项目 REPLACE 逻辑：将 <pic> 标签替换为 <img> 标签
+                            const newImageTag = `<img src="${imgData}" title="${displayTitle}" alt="${displayTitle}" style="max-width:100%;">`;
+                            message.mes = message.mes.replace(item.originalTag, newImageTag);
+
+                            // 更新并强制刷新 UI
+                            updateMessageBlock(currentMesId, message);
+                            await eventSource.emit(event_types.MESSAGE_UPDATED, currentMesId);
                         } else if (insertType === INSERT_TYPE.NEW_MESSAGE) {
-                            // 使用原生媒体展示，mes 仅保留简单的提示语，避免数据库膨胀
-                            context.chat.push({
-                                name: message.name,
-                                is_user: false,
-                                is_system: false,
-                                send_date: Date.now(),
-                                mes: `*(Image Generated: ${displayTitle}...)*`,
-                                extra: {
-                                    image: imgData,
-                                    image_swipes: [imgData],
-                                    title: displayTitle
-                                }
-                            });
-                            // 触发消息接收事件，由于这是新消息，需要通知 UI 渲染
-                            await eventSource.emit(event_types.MESSAGE_RECEIVED, context.chat.length - 1);
+                            // 创建新消息逻辑
+                            const sanitizedTitle = displayTitle.replace(/"/g, "'").replace(/\n/g, ' ');
+                            const textPrompt = `*(Image Generated for: ${sanitizedTitle}...)*`;
+                            await SlashCommandParser.run(`/receive name="${message.name.replace(/"/g, "'")}" ${textPrompt}`);
+
+                            const newMesId = context.chat.length - 1;
+                            const newMsg = context.chat[newMesId];
+                            newMsg.extra = {
+                                ...newMsg.extra,
+                                image: imgData,
+                                image_swipes: [imgData],
+                                inline_image: true,
+                                title: displayTitle
+                            };
+
+                            // 给酒馆一点时间渲染 DOM
+                            setTimeout(() => {
+                                updateMessageBlock(newMesId, newMsg);
+                                const newMessageElement = $(`.mes[mesid="${newMesId}"]`);
+                                appendMediaToMessage(newMsg, newMessageElement);
+                            }, 100);
                         }
                         await context.saveChat();
                     }
