@@ -19,14 +19,14 @@ const INSERT_TYPE = {
 };
 
 const defaultSettings = {
-    serverUrl: 'http://localhost:3000',
+    serverUrl: 'http://localhost:5000',
     defaultCharacter: '',
-    insertType: INSERT_TYPE.INLINE,
-    negativePrompt: '',
+    insertType: INSERT_TYPE.DISABLED,
+    negativePrompt: 'nsfw, low quality, bad quality, (blurry:1.2), (deformed:1.2)',
     promptInjection: {
         enabled: true,
-        prompt: `<image_generation>\nAt the end of your response, output a <pic>visual description of the scene</pic> tag to generate an image.\n</image_generation>`,
-        regex: '/<pic>(.*?)<\\/pic>/g',
+        prompt: '<image_generation>\nAnalyze the current conversation context, specifically focusing on the character\'s actions and the scene progression.\nAt the very end of your response, output a <pic prompt="Tag String"></pic> tag to generate a comic-style image.\n\nThe "Tag String" inside the prompt attribute MUST follow this strictly structured format:\n1. **Header**: Always start with: `(masterpiece, best quality:1.3), anime style, (comic strip:1.4), (vertical layout), (3 panels:1.3), (sequence of events),`\n2. **Content**: Describe the scene using English tags (Danbooru style).\n3. **Structure**:\n   - Describe the scene and characters first.\n   - You can use `BREAK` to separate different moments if the action creates a sequence.\n   - Include visual details like lighting (`soft lighting`), camera angles (`x-ray view` if applicable/requested), and emotions (`blushing`, `heart throbbing`).\n\nExample Output:\n<pic prompt="(masterpiece, best quality:1.3), anime style, (comic strip:1.4), (vertical layout), (3 panels:1.3), (sequence of events), 1girl, 1boy, indoor, school uniform, standing, kissing, soft lighting, BREAK, close up, girl blushing, heart throbbing symbol"></pic>\n</image_generation>',
+        regex: '/<pic[^>]*\\sprompt="([^"]*)"[^>]*?>/g',
         position: 'deep_system',
         depth: 0,
     },
@@ -147,36 +147,13 @@ async function handleIncomingMessage(mesId) {
 
     if (matches.length > 0) {
         const insertType = extension_settings[extensionName].insertType;
-        let contentModified = false;
         const pendingGenerations = [];
 
-        // 1. 立即处理消息文本：隐藏标签或替换为占位符
+        // 1. 收集待生成的图片信息（由于使用属性方式，标签天然不可见，不再修改原文）
         for (let i = 0; i < matches.length; i++) {
             const match = matches[i];
-            const fullTag = match[0];
-            const content = match[1];
-
-            if (insertType === INSERT_TYPE.INLINE || insertType === INSERT_TYPE.NEW_MESSAGE) {
-                // INLINE/NEW 模式：直接移除标签，避免视觉干扰
-                message.mes = message.mes.replace(fullTag, '');
-                contentModified = true;
-                pendingGenerations.push({ prompt: content });
-            } else if (insertType === INSERT_TYPE.REPLACE) {
-                // REPLACE 模式：使用临时占位符
-                const placeholderId = `saac-gen-${mesId}-${i}`;
-                // 使用 font-awesome 图标作为加载动画
-                const placeholder = `<span id="${placeholderId}" class="saac-loading-placeholder" title="Generating image..."><i class="fa-solid fa-circle-notch fa-spin"></i></span>`;
-                message.mes = message.mes.replace(fullTag, placeholder);
-                contentModified = true;
-                pendingGenerations.push({ prompt: content, placeholder: placeholder });
-            }
-        }
-
-        // 如果修改了文本，立即更新 UI
-        if (contentModified) {
-            updateMessageBlock(mesId, message);
-            await eventSource.emit(event_types.MESSAGE_UPDATED, mesId);
-            await context.saveChat();
+            const content = match[1]; // This now captures the content of the 'prompt' attribute
+            pendingGenerations.push({ prompt: content });
         }
 
         // 2. 异步执行生成
@@ -201,39 +178,33 @@ async function handleIncomingMessage(mesId) {
                             // 添加到 swipes
                             message.extra.image_swipes.push(fullBase64);
 
-                            if (insertType === INSERT_TYPE.INLINE) {
-                                // INLINE: 设置为主图并刷新多媒体区域
-                                message.extra.image = fullBase64;
-                                message.extra.title = item.prompt.substring(0, 50);
-                                const messageElement = $(`.mes[mesid="${mesId}"]`);
-                                appendMediaToMessage(message, messageElement);
-                            } else if (insertType === INSERT_TYPE.REPLACE) {
-                                // REPLACE: 将占位符替换为真正的图片 img 标签
-                                const imgHtml = `<img src="${fullBase64}" class="saac-generated-image" alt="${item.prompt}" style="max-width:100%;" />`;
-                                message.mes = message.mes.replace(item.placeholder, imgHtml);
-                                updateMessageBlock(mesId, message);
-                            }
+                            // 设置为主图并刷新多媒体区域 (INLINE 和 REPLACE 现在共用此逻辑)
+                            message.extra.image = fullBase64;
+                            message.extra.title = item.prompt.substring(0, 50);
+                            const messageElement = $(`.mes[mesid="${mesId}"]`);
+                            appendMediaToMessage(message, messageElement);
                         } else if (insertType === INSERT_TYPE.NEW_MESSAGE) {
                             const imgHtml = `<img src="${fullBase64}" style="max-width:100%;" />`;
-                            await context.addMessage({
-                                role: 'assistant',
+                            // Manual insertion since context.addMessage is not available in this context wrapper
+                            context.chat.push({
+                                name: message.name,
+                                is_user: false,
+                                is_system: false,
+                                send_date: Date.now(),
                                 mes: imgHtml,
                                 extra: { image: fullBase64, title: item.prompt.substring(0, 50) }
                             });
+                            // Emit event to notify UI of new message
+                            await eventSource.emit(event_types.MESSAGE_RECEIVED, context.chat.length - 1);
                         }
                         await context.saveChat();
                     }
                 } catch (e) {
                     console.error('[SAAC] Image generation error:', e);
                     toastr.error('SAAC Image Error: ' + e.message);
-                    // 如果是替换模式失败，将占位符替换为错误图标
-                    if (insertType === INSERT_TYPE.REPLACE && item.placeholder) {
-                        message.mes = message.mes.replace(item.placeholder, `<span title="Generation Failed" style="color:red;"><i class="fa-solid fa-triangle-exclamation"></i></span>`);
-                        updateMessageBlock(mesId, message);
-                    }
                 }
             }
-            toastr.success(`Generated images successfully.`);
+            toastr.success(`Generated ${matches.length} images successfully.`);
         }, 0);
     }
 }
