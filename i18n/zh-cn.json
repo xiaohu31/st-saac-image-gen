@@ -21,5 +21,6 @@
     "Connection failed": "连接失败",
     "Generating image...": "正在生成图片...",
     "Image generated successfully": "图片生成成功",
-    "Image generation failed": "图片生成失败"
+    "Image generation failed": "图片生成失败",
+    "Select a character": "选择角色"
 }

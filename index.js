@@ -44,6 +44,47 @@ function updateUI() {
     $('#saac_injection_depth').val(extension_settings[extensionName].promptInjection.depth);
 }
 
+async function fetchCharacters() {
+    const url = extension_settings[extensionName].serverUrl;
+    try {
+        const response = await fetch(`${url}/api/st/characters`);
+        if (response.ok) {
+            const data = await response.json();
+            const charSelect = $('#saac_default_character');
+            const currentValue = charSelect.val() || extension_settings[extensionName].defaultCharacter;
+
+            charSelect.empty();
+            charSelect.append(`<option value="">(None)</option>`);
+            data.characters.forEach(char => {
+                charSelect.append(`<option value="${char}">${char}</option>`);
+            });
+
+            charSelect.val(currentValue);
+            // If the value is not in the list anymore, reset it
+            if (charSelect.val() !== currentValue) {
+                charSelect.val('');
+                extension_settings[extensionName].defaultCharacter = '';
+                saveSettingsDebounced();
+            }
+
+            // Initialize select2 if available in ST
+            if (typeof charSelect.select2 === 'function') {
+                charSelect.select2({
+                    placeholder: 'Select a character',
+                    allowClear: true,
+                    width: '100%'
+                });
+                charSelect.on('change', () => {
+                    extension_settings[extensionName].defaultCharacter = charSelect.val();
+                    saveSettingsDebounced();
+                });
+            }
+        }
+    } catch (e) {
+        console.warn('[SAAC] Failed to fetch characters:', e);
+    }
+}
+
 async function loadSettings() {
     extension_settings[extensionName] = extension_settings[extensionName] || {};
     if (Object.keys(extension_settings[extensionName]).length === 0) {
@@ -129,7 +170,9 @@ async function handleIncomingMessage(mesId) {
 
                             message.extra.image_swipes.push(fullBase64);
                             message.extra.image = fullBase64;
-                            message.extra.title = customPrompt || aiPrompt;
+                            // 优化标题展示：去除重复，增加格式化
+                            const displayTitle = (customPrompt || aiPrompt || charName || 'Generated Image').trim();
+                            message.extra.title = displayTitle;
 
                             if (insertType === INSERT_TYPE.REPLACE) {
                                 const imgHtml = `<img src="${fullBase64}" style="max-width:100%;" />`;
@@ -195,13 +238,19 @@ $(async function () {
 
     // Event Listeners for UI
     $('#saac_server_url').on('input', () => { extension_settings[extensionName].serverUrl = $('#saac_server_url').val(); saveSettingsDebounced(); });
-    $('#saac_default_character').on('input', () => { extension_settings[extensionName].defaultCharacter = $('#saac_default_character').val(); saveSettingsDebounced(); });
+    $('#saac_default_character').on('change', () => { extension_settings[extensionName].defaultCharacter = $('#saac_default_character').val(); saveSettingsDebounced(); });
     $('#saac_insert_type').on('change', () => { extension_settings[extensionName].insertType = $('#saac_insert_type').val(); saveSettingsDebounced(); });
     $('#saac_negative_prompt').on('input', () => { extension_settings[extensionName].negativePrompt = $('#saac_negative_prompt').val(); saveSettingsDebounced(); });
     $('#saac_prompt_injection_enabled').on('change', () => { extension_settings[extensionName].promptInjection.enabled = $('#saac_prompt_injection_enabled').prop('checked'); saveSettingsDebounced(); });
+    $('#saac_prompt_template').on('input', () => { extension_settings[extensionName].promptInjection.prompt = $('#saac_prompt_template').val(); saveSettingsDebounced(); });
+    $('#saac_prompt_regex').on('input', () => { extension_settings[extensionName].promptInjection.regex = $('#saac_prompt_regex').val(); saveSettingsDebounced(); });
+    $('#saac_injection_position').on('change', () => { extension_settings[extensionName].promptInjection.position = $('#saac_injection_position').val(); saveSettingsDebounced(); });
+    $('#saac_injection_depth').on('input', () => { extension_settings[extensionName].promptInjection.depth = parseInt($('#saac_injection_depth').val()); saveSettingsDebounced(); });
     $('#saac_test_connection').on('click', testConnection);
+    $('#saac_refresh_characters').on('click', fetchCharacters);
 
     await loadSettings();
+    await fetchCharacters();
 
     eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, (eventData) => {
         if (!extension_settings[extensionName].promptInjection.enabled || extension_settings[extensionName].insertType === INSERT_TYPE.DISABLED) return;

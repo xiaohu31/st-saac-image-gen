@@ -4,7 +4,7 @@
     "requires": [],
     "optional": [],
     "js": "index.js",
-    "css": "",
+    "css": "style.css",
     "author": "SAAC",
     "version": "1.0.0",
     "homePage": "https://github.com/mirabarukaso/character_select_stand_alone_app",

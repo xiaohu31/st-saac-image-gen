@@ -13,7 +13,12 @@
         <!-- 默认角色名 -->
         <div class="flex-container flexnowrap">
             <label for="saac_default_character" class="flex1" data-i18n="Default Character">Default Character</label>
-            <input id="saac_default_character" class="text_pole widthFull" type="text" placeholder="character_name">
+            <div class="flex-container flexnowrap flex1">
+                <select id="saac_default_character" class="text_pole widthFull margin0">
+                   <option value="" data-i18n="Select a character">Select a character</option>
+                </select>
+                <div id="saac_refresh_characters" class="menu_button fa-solid fa-sync-alt" title="Refresh character list"></div>
+            </div>
         </div>
 
         <!-- 图片插入模式 -->
