@@ -25,8 +25,8 @@ const defaultSettings = {
     negativePrompt: '',
     promptInjection: {
         enabled: true,
-        prompt: `<image_generation>\nBased on the current scene and character, output a <pic character="name" ai_prompt="description" custom_prompt="details"> tag at the end of your reply to generate an image. ai_prompt should be a physical description for the AI to expand, and custom_prompt should be the specific scene details.\n</image_generation>`,
-        regex: '/<pic[^>]*character="([^"]*)"[^>]*ai_prompt="([^"]*)"[^>]*custom_prompt="([^"]*)"[^>]*?>/g',
+        prompt: `<image_generation>\nAt the end of your response, output a <pic>visual description of the scene</pic> tag to generate an image.\n</image_generation>`,
+        regex: '/<pic>(.*?)<\\/pic>/g',
         position: 'deep_system',
         depth: 0,
     },
@@ -149,14 +149,13 @@ async function handleIncomingMessage(mesId) {
         toastr.info('Generating images via SAAC...');
         for (const match of matches) {
             try {
-                const charName = match[1];
-                const aiPrompt = match[2];
-                const customPrompt = match[3];
+                // 现在 match[1] 是内容，match[0] 是完整标签
+                const content = match[1];
 
                 const base64Image = await generateImage({
-                    character: charName,
-                    ai_prompt: aiPrompt,
-                    custom_prompt: customPrompt
+                    character: extension_settings[extensionName].defaultCharacter,
+                    ai_prompt: content, // 统一发送到 ai_prompt 由 SAAC 决定是否扩展
+                    custom_prompt: ''
                 });
 
                 if (base64Image) {
@@ -170,9 +169,8 @@ async function handleIncomingMessage(mesId) {
 
                             message.extra.image_swipes.push(fullBase64);
                             message.extra.image = fullBase64;
-                            // 优化标题展示：去除重复，增加格式化
-                            const displayTitle = (customPrompt || aiPrompt || charName || 'Generated Image').trim();
-                            message.extra.title = displayTitle;
+                            // 标题使用标签内的原始描述，更具可读性
+                            message.extra.title = content.substring(0, 50);
 
                             if (insertType === INSERT_TYPE.REPLACE) {
                                 const imgHtml = `<img src="${fullBase64}" style="max-width:100%;" />`;

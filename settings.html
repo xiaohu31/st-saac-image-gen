@@ -15,9 +15,10 @@
             <label for="saac_default_character" class="flex1" data-i18n="Default Character">Default Character</label>
             <div class="flex-container flexnowrap flex1">
                 <select id="saac_default_character" class="text_pole widthFull margin0">
-                   <option value="" data-i18n="Select a character">Select a character</option>
+                    <option value="" data-i18n="Select a character">Select a character</option>
                 </select>
-                <div id="saac_refresh_characters" class="menu_button fa-solid fa-sync-alt" title="Refresh character list"></div>
+                <div id="saac_refresh_characters" class="menu_button fa-solid fa-sync-alt"
+                    title="Refresh character list"></div>
             </div>
         </div>
 
@@ -41,21 +42,24 @@
         </div>
 
         <!-- 提示词模板 -->
-        <div class="">
-            <div><label for="saac_prompt_template" class="flex1" data-i18n="Prompt Template">Prompt Template</label></div>
-            <textarea id="saac_prompt_template" class="text_pole textarea_compact" rows="4" placeholder="Prompt that instructs AI to generate image tag"></textarea>
+        <div class="flex-container">
+            <label for="saac_prompt_template" data-i18n="Prompt Template">Prompt Template</label>
+            <textarea id="saac_prompt_template" class="text_pole widthFull" rows="4"
+                placeholder="At the end of your response, output a <pic>description</pic> tag."></textarea>
         </div>
 
         <!-- 正则表达式 -->
-        <div class="">
-            <div><label for="saac_prompt_regex" class="flex1" data-i18n="Regex">Regex</label></div>
-            <textarea id="saac_prompt_regex" class="text_pole textarea_compact" rows="2" placeholder="Regex to extract prompt from AI response"></textarea>
+        <div class="flex-container">
+            <label for="saac_prompt_regex" data-i18n="Regex">Regex</label>
+            <input id="saac_prompt_regex" class="text_pole widthFull" type="text" placeholder="/<pic>(.*?)<\/pic>/g">
         </div>
 
         <!-- 默认负面提示词 -->
         <div class="">
-            <div><label for="saac_negative_prompt" class="flex1" data-i18n="Default Negative Prompt">Default Negative Prompt</label></div>
-            <textarea id="saac_negative_prompt" class="text_pole textarea_compact" rows="2" placeholder="nsfw, low quality, bad anatomy"></textarea>
+            <div><label for="saac_negative_prompt" class="flex1" data-i18n="Default Negative Prompt">Default Negative
+                    Prompt</label></div>
+            <textarea id="saac_negative_prompt" class="text_pole textarea_compact" rows="2"
+                placeholder="nsfw, low quality, bad anatomy"></textarea>
         </div>
 
         <!-- 注入位置 -->
